@@ -36,16 +36,16 @@ def get_users(session:Session=Depends(get_session)):# gives the endpoint  databa
 
 
 # To get one user at a time
-@router.get(f"/{id}",response_model=UserResponse)
+@router.get("/{user_id}",response_model=UserResponse)
 def get_user(
-    id:int,# User id should be integer
+    user_id:int,# User id should be integer
     session:Session=Depends(get_session)
 ):
     # The User is the model and id should be the primary key of the model
     # user=session.get(User,id)#To find the record in user table whole primary key is user_id
     user=user_service.get_user(
         session,
-        id
+        user_id
     )
     if user is None:
         raise HTTPException(
@@ -54,15 +54,15 @@ def get_user(
         )
     return user
 
-@router.put(f"/{id}",response_model=UserResponse)
+@router.put("/{user_id}",response_model=UserResponse)
 def update_user(
-    id:int,
+    user_id:int,
     user_data:UserUpdate,
     session:Session=Depends(get_session)
-):
+)->User:
     user = user_service.get_user(
         session,
-        id
+        user_id
     )
 
     if user is None:
@@ -77,7 +77,7 @@ def update_user(
         user_data
     )
     
-    # db_user=session.get(User,id)
+    # db_user=session.get(User,user_id)
     # if not db_user:
     #     return{"message":"User not found"}
     # db_user.name=user.name
@@ -89,15 +89,15 @@ def update_user(
     # session.refresh(db_user)
     # return db_user
 
-@router.delete(f"/{id}")
+@router.delete("/{user_id}")
 def delete_user(
-    id:int,
+    user_id:int,
     session:Session=Depends(get_session)
 ):
-    # user=session.get(User,id)
+    # user=session.get(User,user_id)
     db_user = user_service.get_user(
         session,
-        id
+        user_id
     )
     if not db_user:
         raise HTTPException(
