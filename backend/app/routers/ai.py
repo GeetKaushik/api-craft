@@ -1,11 +1,42 @@
-from fastapi import APIRouter, HTTPException,Request
 
-from app.schemas.ai import AIRequest,AIResponse
-from app.schemas.api_schema import APIRequest,APISchema
-from app.services.ai_service import (generate_ai_analysis,generate_api_schema)
-from app.services.schema_service import (interpret_api_schema,create_database_table,create_dynamic_model,register_dynamic_model)
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlmodel import Session
 
-from app.routers.dynamic import register_dynamic_routes
+from app.database.dependencies import get_session
+from app.database.models import User
+from app.auth_dependencies import get_current_user
+
+from app.schemas.ai import AIRequest, AIResponse
+from app.schemas.api_schema import APIRequest, APISchema
+
+from app.services.ai_service import (
+    generate_ai_analysis,
+    generate_api_schema,
+)
+
+from app.services.schema_service import (
+    interpret_api_schema,
+    create_database_table,
+    create_dynamic_model,
+    register_dynamic_model,
+    get_dynamic_model,
+)
+
+from app.services.database_inspector import (
+    table_exists,
+    get_existing_api_schema,
+    apply_minor_changes,
+    apply_major_change,
+)
+
+from app.services.schema_comparator import compare_schemas
+
+from app.services.generated_api_service import (
+    make_table_name,
+    get_owned_api,
+    save_api_definition,
+)
+
 
 router = APIRouter(
     prefix="/ai",
@@ -38,60 +69,86 @@ def analyze_content(data: AIRequest):
             detail=str(e)
         )
 
+
 @router.post("/generate-schema", response_model=APISchema)
-def generate_schema(request:Request, data: APIRequest):
+def generate_schema(
+    request: Request,
+    data: APIRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     try:
-        # 1. Ask Gemini to generate the API schema
+        # 1. Generate and validate the schema.
         result = generate_api_schema(data.prompt)
-
-        print("GENERATED API SCHEMA:", result)
-
-        # 2. Validate Gemini's response using Pydantic
         validated_result = APISchema.model_validate(result)
 
         print("VALIDATED API SCHEMA:", validated_result)
 
-        # 3. Interpret the schema
-        interpreted_result = interpret_api_schema(validated_result)
+        # 2. Validate the resource name and create a user-specific table name.
+        try:
+            table_name = make_table_name(
+                current_user.id,
+                validated_result.resource_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
 
-        print("INTERPRETED API SCHEMA:", interpreted_result)
+        # 3. Check whether this user already owns an API with this name.
+        existing_api = get_owned_api(
+            session,
+            current_user.id,
+            validated_result.resource_name,
+        )
 
-        # 4. Create a dynamic SQLModel class
-        dynamic_model = create_dynamic_model(validated_result)
+        if existing_api is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"You already have an API named "
+                    f"'{validated_result.resource_name}'. "
+                    "Use a different resource name for now."
+                ),
+            )
 
-        print("DYNAMIC MODEL:", dynamic_model)
-        print("TABLE NAME:", dynamic_model.__tablename__)
+        # 4. Create the dynamic model using the user-specific table name.
+        dynamic_model = create_dynamic_model(
+            validated_result,
+            table_name=table_name,
+        )
 
-        # 5. Create the table in SQL Server
+        # 5. Create the physical database table.
         create_database_table(dynamic_model)
 
-        print("DATABASE TABLE CREATED")
+        # 6. Save the API definition and its owner.
+        try:
+            save_api_definition(
+                session=session,
+                owner_id=current_user.id,
+                api_schema=validated_result,
+                table_name=table_name,
+            )
+        except Exception:
+            session.rollback()
+            raise
 
-        # 6. Register the model so the dynamic CRUD routes
-        #    can find it later
+        # 7. Register the model by its physical table name.
         register_dynamic_model(dynamic_model)
 
-        print("REGISTERED MODEL:", dynamic_model.__tablename__)
+        print("DATABASE TABLE CREATED:", table_name)
+        print("API OWNER ID:", current_user.id)
 
-        # 7. Register FastAPI routes
-        register_dynamic_routes(
-            app=request.app,
-            api_schema=validated_result,
-            dynamic_model=dynamic_model
-        )
-        print("REGISTERED API ROUTE:",f"/dynamic/{validated_result.resource_name}")
-
-        # 8. Return the validated schema to the frontend
         return validated_result
 
-    except Exception as e:
+    except HTTPException:
+        raise
+
+    except Exception as exc:
         import traceback
 
-        print("API SCHEMA GENERATION ERROR:", repr(e))
+        print("API SCHEMA GENERATION ERROR:", repr(exc))
         traceback.print_exc()
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
-        )
-   
+            detail="Failed to generate the API schema.",
+        ) from exc

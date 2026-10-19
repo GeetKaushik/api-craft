@@ -4,10 +4,7 @@ COMPATIBLE_TYPE_CHANGES = {
 
 
 def is_compatible_type_change(old_type, new_type):
-    return (
-        old_type == new_type
-        or (old_type, new_type) in COMPATIBLE_TYPE_CHANGES
-    )
+    return old_type == new_type or (old_type, new_type) in COMPATIBLE_TYPE_CHANGES
 
 
 def compare_schemas(existing_schema, new_schema):
@@ -23,15 +20,9 @@ def compare_schemas(existing_schema, new_schema):
         }
     """
 
-    existing_fields = {
-        field.name: field
-        for field in existing_schema.fields
-    }
+    existing_fields = {field.name: field for field in existing_schema.fields}
 
-    new_fields = {
-        field.name: field
-        for field in new_schema.fields
-    }
+    new_fields = {field.name: field for field in new_schema.fields}
 
     added_fields = []
     removed_fields = []
@@ -47,6 +38,10 @@ def compare_schemas(existing_schema, new_schema):
 
         if field_name not in existing_fields:
             added_fields.append(field_name)
+
+            # Only a newly added required field is MAJOR
+            if new_field.required:
+                major_change = True
 
     # -----------------------------------
     # 2. Detect removed fields
@@ -104,10 +99,7 @@ def compare_schemas(existing_schema, new_schema):
 
             if type_changed:
 
-                if not is_compatible_type_change(
-                    old_field.type,
-                    new_field.type
-                ):
+                if not is_compatible_type_change(old_field.type, new_field.type):
                     major_change = True
 
     # -----------------------------------
@@ -142,21 +134,9 @@ if __name__ == "__main__":
         resource_name="products",
         description="Product API",
         fields=[
-            APIField(
-                name="name",
-                type="string",
-                required=True
-            ),
-            APIField(
-                name="price",
-                type="float",
-                required=True
-            ),
-            APIField(
-                name="ratings",
-                type="float",
-                required=True
-            ),
+            APIField(name="name", type="string", required=True),
+            APIField(name="price", type="float", required=True),
+            APIField(name="ratings", type="float", required=True),
         ],
     )
 
@@ -164,32 +144,13 @@ if __name__ == "__main__":
         resource_name="products",
         description="Updated Product API",
         fields=[
-            APIField(
-                name="name",
-                type="string",
-                required=True
-            ),
-            APIField(
-                name="price",
-                type="string",
-                required=True
-            ),
-            APIField(
-                name="ratings",
-                type="float",
-                required=False
-            ),
-            APIField(
-                name="category",
-                type="string",
-                required=False
-            ),
+            APIField(name="name", type="string", required=True),
+            APIField(name="price", type="float", required=True),
+            APIField(name="ratings", type="float", required=True),
+            APIField(name="category", type="string", required=False),
         ],
     )
 
-    result = compare_schemas(
-        existing_schema,
-        new_schema
-    )
+    result = compare_schemas(existing_schema, new_schema)
 
     print(result)

@@ -10,7 +10,7 @@ TYPE_MAPPING = {
     "boolean": bool,
 }  # Gemini return in "string and it is converting it to str in python type"
 
-DYNAMIC_MODELS = {}# Registery
+DYNAMIC_MODELS = {}  # Registery
 
 
 def get_python_type(field_type: str):
@@ -40,13 +40,14 @@ def interpret_api_schema(api_schema):
     }
 
 
-def create_dynamic_model(api_schema):
+def create_dynamic_model(api_schema, table_name: str | None = None):
     """
     Dynamically creates a SQLModel table class
     from an APISchema object.
     """
 
-    model_name = api_schema.resource_name.capitalize()
+    physical_table_name = table_name or api_schema.resource_name
+    model_name = physical_table_name.capitalize()
 
     annotations = {"id": int | None}
 
@@ -66,11 +67,12 @@ def create_dynamic_model(api_schema):
             annotations[field.name] = python_type | None
             namespace[field.name] = Field(default=None)
 
-    namespace["__tablename__"] = api_schema.resource_name
+    namespace["__tablename__"] = physical_table_name
 
     DynamicModel = SQLModelMetaclass(model_name, (SQLModel,), namespace, table=True)
 
     return DynamicModel
+
 
 def create_dynamic_request_model(api_schema):
     """
@@ -87,22 +89,16 @@ def create_dynamic_request_model(api_schema):
         python_type = get_python_type(field.type)
 
         if field.required:
-            fields[field.name] = (
-                python_type,
-                Field(...)
-            )
+            fields[field.name] = (python_type, Field(...))
         else:
-            fields[field.name] = (
-                python_type | None,
-                Field(default=None)
-            )
+            fields[field.name] = (python_type | None, Field(default=None))
 
     RequestModel = create_model(
-        f"{api_schema.resource_name.capitalize()}Request",
-        **fields
+        f"{api_schema.resource_name.capitalize()}Request", **fields
     )
 
     return RequestModel
+
 
 def register_dynamic_model(dynamic_model):
     """

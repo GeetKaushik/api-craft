@@ -1,9 +1,16 @@
-from sqlalchemy import inspect,text
+from sqlalchemy import inspect, text
 
 from app.database.database import engine
 from app.schemas.api_schema import APIField, APISchema
 from app.services.schema_comparator import compare_schemas
-from app.services.schema_service import (create_dynamic_model,create_database_table,register_dynamic_model)
+from app.services.schema_service import (
+    create_dynamic_model,
+    create_database_table,
+    register_dynamic_model,
+    interpret_api_schema,
+)
+
+
 def table_exists(table_name: str) -> bool:
     """
     Checks whether a table exists in the APICraft SQL Server database.
@@ -12,6 +19,7 @@ def table_exists(table_name: str) -> bool:
     inspector = inspect(engine)
 
     return inspector.has_table(table_name)
+
 
 def get_next_versioned_table_name(table_name: str) -> str:
     """
@@ -32,6 +40,7 @@ def get_next_versioned_table_name(table_name: str) -> str:
 
         version += 1
 
+
 def create_versioned_table(new_schema):
     """
     Create a new versioned table for a MAJOR schema change.
@@ -41,18 +50,15 @@ def create_versioned_table(new_schema):
 
     old_table_name = new_schema.resource_name
 
-    versioned_table_name = get_next_versioned_table_name(
-        old_table_name
-    )
+    versioned_table_name = get_next_versioned_table_name(old_table_name)
 
     # Create a copy of the schema with the versioned table name
     versioned_schema = new_schema.model_copy(
-        update={
-            "resource_name": versioned_table_name
-        }
+        update={"resource_name": versioned_table_name}
     )
 
     return versioned_schema
+
 
 def apply_major_change(new_schema):
     """
@@ -64,6 +70,7 @@ def apply_major_change(new_schema):
     versioned_schema = create_versioned_table(new_schema)
 
     return versioned_schema
+
 
 def get_table_columns(table_name: str):
     """
@@ -86,48 +93,73 @@ def sql_type_to_api_type(sql_type) -> str:
 
     type_name = str(sql_type).upper()
 
-    if "CHAR" in type_name or "TEXT" in type_name:
+    # String types
+    if any(t in type_name for t in [
+        "CHAR", "TEXT", "CLOB", "XML", "UNIQUEIDENTIFIER"
+    ]):
         return "string"
 
-    if "INT" in type_name:
+    # Integer types
+    if any(t in type_name for t in [
+        "BIGINT", "SMALLINT", "TINYINT", "INTEGER", "INT"
+    ]):
         return "integer"
 
-    if "FLOAT" in type_name or "REAL" in type_name:
+    # Floating-point types
+    if any(t in type_name for t in [
+        "FLOAT", "REAL"
+    ]):
         return "float"
 
-    if "DECIMAL" in type_name or "NUMERIC" in type_name:
+    # Decimal / numeric types
+    if any(t in type_name for t in [
+        "DECIMAL", "NUMERIC", "MONEY"
+    ]):
         return "float"
 
+    # Boolean type
     if "BIT" in type_name:
         return "boolean"
+
+    # Date and time types
+    if any(t in type_name for t in [
+        "DATETIMEOFFSET",
+        "DATETIME2",
+        "SMALLDATETIME",
+        "DATETIME",
+        "TIMESTAMP",
+        "DATE",
+        "TIME",
+    ]):
+        return "string"
+
+    # Other common SQL Server types
+    if "BINARY" in type_name or "IMAGE" in type_name:
+        return "string"
 
     raise ValueError(f"Unsupported SQL Server type: {type_name}")
 
 def add_column_to_table(
-        table_name:str,
-        column_name:str,
-        column_type:str,
-        nullable:bool=True
+    table_name: str, column_name: str, column_type: str, nullable: bool = True
 ):
     """
     Add a new column to an existing SQL Server table.
     """
-    SQL_TYPE_MAPPING={
-        "string":"VARCHAR(255)",
-        "integer":"INTEGER",
-        "float":"FLOAT",
-        "boolean":"BIT"
+    SQL_TYPE_MAPPING = {
+        "string": "VARCHAR(255)",
+        "integer": "INTEGER",
+        "float": "FLOAT",
+        "boolean": "BIT",
     }
     if column_type not in SQL_TYPE_MAPPING:
         raise ValueError(f"Unsupported API field type:{column_type}")
-    
-    sql_type=SQL_TYPE_MAPPING[column_type]
 
-    nullability="NULL" if nullable else "NOT NULL"
+    sql_type = SQL_TYPE_MAPPING[column_type]
+
+    nullability = "NULL" if nullable else "NOT NULL"
 
     query = text(
-        f"ALTER TABLE [{table_name}] "
-        f"ADD [{column_name}] {sql_type} {nullability}"
+        f"ALTER TABLE [{table_name}] " f"ADD [{column_name}] {sql_type} {nullability}"
     )
 
     with engine.begin() as connection:
@@ -140,34 +172,78 @@ def add_column_to_table(
         "nullable": nullable,
     }
 
-def apply_minor_changes(existing_schema,new_schema,comparison):
+
+def apply_minor_changes(existing_schema, new_schema, comparison):
     """
-    Apply safe MINOR schema changes to an existing database table.
+    Apply safe MINOR schema changes to an existing SQL Server table.
+    Preserve existing records.
     """
-    table_name=existing_schema.resource_name
-    existing_fields={
-        field.name:field 
-        for field in existing_schema.fields
-    }
-    new_fields={
-        field.name:field 
-        for field in new_schema.fields
-    }
+
+    table_name = existing_schema.resource_name
+
+    existing_fields = {field.name: field for field in existing_schema.fields}
+
+    new_fields = {field.name: field for field in new_schema.fields}
+
+    applied_changes = []
+
+    # 1. Add newly introduced fields
     for field_name in comparison["added_fields"]:
         field = new_fields[field_name]
+
+        # A required new field needs a separate migration
+        # strategy if the table already contains records.
+        if field.required:
+            raise ValueError(
+                f"Cannot safely add required field '{field_name}' "
+                "as a MINOR change. It needs a migration strategy."
+            )
 
         add_column_to_table(
             table_name=table_name,
             column_name=field.name,
             column_type=field.type,
-            nullable=not field.required
+            nullable=True,
         )
+
+        applied_changes.append(f"Added optional field: {field_name}")
+
+    # 2. Change required fields to optional
+    for field_name in comparison["changed_fields"]:
+        old_field = existing_fields[field_name]
+        new_field = new_fields[field_name]
+
+        if old_field.required and not new_field.required:
+            columns = get_table_columns(table_name)
+
+            column = next(
+                (item for item in columns if item["name"] == field_name),
+                None,
+            )
+
+            if column is None:
+                raise ValueError(
+                    f"Column '{field_name}' was not found " f"in table '{table_name}'."
+                )
+
+            sql_type = column["type"].compile(dialect=engine.dialect)
+
+            query = text(
+                f"ALTER TABLE [{table_name}] "
+                f"ALTER COLUMN [{field_name}] {sql_type} NULL"
+            )
+
+            with engine.begin() as connection:
+                connection.execute(query)
+
+            applied_changes.append(f"Changed field to optional: {field_name}")
 
     return {
         "change_type": "MINOR",
         "table": table_name,
-        "added_fields": comparison["added_fields"]
+        "applied_changes": applied_changes,
     }
+
 
 def get_existing_api_schema(table_name: str) -> APISchema | None:
     """
@@ -206,5 +282,3 @@ def get_existing_api_schema(table_name: str) -> APISchema | None:
     print(result.fields)
 
     return result
-
-
