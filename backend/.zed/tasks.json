@@ -1,0 +1,10 @@
+[
+    {
+        "label": "APICraft: Start Backend",
+        "command": "C:\\Users\\global\\.virtualenvs\\.venv\\Scripts\\python.exe",
+        "args": ["-m", "uvicorn", "app.main:app", "--reload"],
+        "cwd": "$ZED_WORKTREE_ROOT/backend",
+        "use_new_terminal": true,
+        "allow_concurrent_runs": false,
+    },
+]

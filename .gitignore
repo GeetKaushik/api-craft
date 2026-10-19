@@ -362,3 +362,37 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+┌───────────────────────┐
+│       React           │
+│       Frontend        │
+└───────────┬───────────┘
+            │
+            │ DELETE /users/5
+            ↓
+┌───────────────────────┐
+│       Router          │
+│      users.py         │
+│                       │
+│ HTTP responsibilities │
+└───────────┬───────────┘
+            │
+            ↓
+┌───────────────────────┐
+│       Service         │
+│  user_service.py      │
+│                       │
+│ Business logic        │
+└───────────┬───────────┘
+            │
+            ↓
+┌───────────────────────┐
+│       Session         │
+│      SQLModel         │
+└───────────┬───────────┘
+            │
+            ↓
+┌───────────────────────┐
+│      SQLite DB        │
+│      apicraft.db      │
+└───────────────────────┘
