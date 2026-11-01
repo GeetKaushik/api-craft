@@ -1,16 +1,31 @@
-# Engine and session setup(Connect to the database)
+import os
 
+from dotenv import load_dotenv
+from sqlalchemy.engine import URL
 from sqlmodel import create_engine
-# Use SQLite and tell the databse to create this file named apicraft.db if it does not exists
-DATABASE_URL=(
-    "mssql+pyodbc://localhost/APICraft"
-    "?driver=ODBC+Driver+18+for+SQL+Server"
-    "&trusted_connection=yes"
-    "&TrustServerCertificate=yes"
-    )
 
+# Load environment variables from backend/.env
+load_dotenv()
 
-engine=create_engine(
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+
+if not DB_PASSWORD:
+    raise ValueError("DB_PASSWORD is missing from the .env file")
+
+DATABASE_URL = URL.create(
+    drivername="mssql+pyodbc",
+    username="sa",
+    password=DB_PASSWORD,
+    host="127.0.0.1",
+    port=1433,
+    database="APICraft",
+    query={
+        "driver": "ODBC Driver 18 for SQL Server",
+        "TrustServerCertificate": "yes",
+    },
+)
+
+engine = create_engine(
     DATABASE_URL,
-    echo=True
+    echo=True,
 )

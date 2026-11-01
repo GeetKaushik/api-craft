@@ -28,7 +28,7 @@ function AuthForm({ mode }) {
     setNotice("")
   }
 
-  const validate = (event) => {
+  const validate = () => {
     const nextErrors = {}
 
     if (isRegistration && values.name.trim().length < 2) {
@@ -76,7 +76,7 @@ function AuthForm({ mode }) {
       try {
         setNotice("Creating your account...")
 
-        const user = await authService.register({
+        await authService.register({
           name: values.name,
           email: values.email,
           password: values.password,
