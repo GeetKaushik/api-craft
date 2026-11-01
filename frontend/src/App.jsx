@@ -1,17 +1,31 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { X } from "lucide-react"
 import AppLayout from "./components/layout/AppLayout.jsx"
 import DashboardPage from "./pages/DashboardPage.jsx"
 import RequestWorkspacePage from "./pages/RequestWorkspacePage.jsx"
 import EmptyState from "./components/common/EmptyState.jsx"
 import Modal from "./components/common/Modal.jsx"
+import LoginPage from "./pages/LoginPage.jsx"
+import RegistrationPage from "./pages/RegistrationPage.jsx"
+
+function getAuthPage() {
+  const route = window.location.hash.slice(1).toLowerCase()
+  return route === "login" || route === "register" ? route : null
+}
 
 function App() {
+  const [authPage, setAuthPage] = useState(getAuthPage)
   const [activeSection, setActiveSection] = useState("Overview")
   const [collapsed, setCollapsed] = useState(false)
   const [showRequestWorkspace, setShowRequestWorkspace] = useState(false)
   const [modalType, setModalType] = useState(null)
   const [notice, setNotice] = useState("")
+
+  useEffect(() => {
+    const syncAuthPage = () => setAuthPage(getAuthPage())
+    window.addEventListener("hashchange", syncAuthPage)
+    return () => window.removeEventListener("hashchange", syncAuthPage)
+  }, [])
 
   const openRequestWorkspace = () => {
     setShowRequestWorkspace(true)
@@ -22,6 +36,9 @@ function App() {
     setActiveSection(section)
     setShowRequestWorkspace(false)
   }
+
+  if (authPage === "login") return <LoginPage />
+  if (authPage === "register") return <RegistrationPage />
 
   let page
   if (showRequestWorkspace) {
