@@ -59,6 +59,7 @@ def login_user(
     login_data:LoginRequest,
     session:Session=Depends(get_session),
 ):
+    
     #Find the user by email.
     user=session.exec(
         select(User).where(User.email==login_data.email)
